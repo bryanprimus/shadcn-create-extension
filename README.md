@@ -19,6 +19,23 @@ Chrome: open `chrome://extensions`, enable Developer mode, click
 
 `pnpm dev` starts a browser with the extension loaded and hot reload.
 
+## Releases
+
+Every push to `main` runs the tests and publishes a GitHub Release
+(`v0.1.<run number>`) with the Chrome and Firefox zips
+([`.github/workflows/release.yml`](.github/workflows/release.yml)).
+
+To try a release: download the `chrome.zip` asset, unzip it, and use
+**Load unpacked** in `chrome://extensions` (or Arc's extensions page).
+
+### Chrome Web Store (optional)
+
+The same workflow uploads to the Chrome Web Store once these repository
+secrets exist: `CHROME_EXTENSION_ID`, `CHROME_PUBLISHER_ID`,
+`CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL`, `CHROME_SERVICE_ACCOUNT_PRIVATE_KEY`.
+The first upload has to be done by hand in the developer dashboard to get the
+extension ID.
+
 ## How it works
 
 The create page is a Next.js app whose pickers are Base UI menus, and the
