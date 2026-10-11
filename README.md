@@ -4,7 +4,9 @@ A browser extension that adds more font families to the **Heading** and
 **Font** pickers on [ui.shadcn.com/create](https://ui.shadcn.com/create), with
 the live preview updating as you hover and pick.
 
-Currently adds: **Gabarito**.
+* **Search** any of the ~1,900 [Fontsource](https://fontsource.org) families
+  from a search box at the top of both menus.
+* **Custom** group: Gabarito (bundled) plus the fonts you picked from search.
 
 ## Install (development)
 
@@ -50,16 +52,24 @@ preview is a same origin iframe at `/preview/<base>/<item>`.
   writes `--font-sans` / `--font-heading` as inline styles on `<html>`; the
   extension overrides them with an `!important` rule, and keeps "heading
   inherits body" working.
-* Fonts are bundled from Fontsource packages and registered with the
-  `FontFace` API from an `ArrayBuffer`, so the page's CSP does not matter.
+* Search uses the [Fontsource API](https://fontsource.org/docs/api/introduction):
+  the catalog (`/v1/fonts`) is fetched once when the search box is first used,
+  and a picked font is resolved with `/v1/fonts/{id}` (plus `/v1/variable/{id}`
+  for variable fonts) into woff2 URLs on jsDelivr. Font files are registered
+  with the `FontFace` API and only downloaded for the weights and scripts the
+  page renders.
+* Bundled fonts are registered from an `ArrayBuffer`, so the page's CSP does
+  not matter for them.
 * The selection lives in the tab's `sessionStorage`, shared by the page and
-  its iframe, so it survives reloads. The extension needs no permissions.
+  its iframe, so it survives reloads. Fonts picked from search are remembered
+  in the site's `localStorage`. The extension needs no permissions.
 
-## Adding a font
+## Bundling a font
 
-Add the `@fontsource-variable/<slug>` package and an entry in
-[`lib/fonts.ts`](lib/fonts.ts). The build copies the font files from the
-package.
+Fonts from search need no code. To ship one inside the extension (works
+offline), add the `@fontsource-variable/<slug>` package and an entry in
+`BUNDLED_FONTS` in [`lib/fonts.ts`](lib/fonts.ts). The build copies the font
+files from the package.
 
 ## Tests
 
@@ -70,12 +80,13 @@ pnpm test:e2e
 
 The e2e tests run the built extension in Chromium against
 `e2e/fixture`, a trimmed replica of the create page (same Base UI picker
-markup and iframe protocol). Set `CHROMIUM_PATH` to use an existing Chromium
+markup and iframe protocol). Fontsource and jsDelivr are mocked
+(`e2e/fontsource-mock.ts`), so the tests run offline. Set `CHROMIUM_PATH` to use an existing Chromium
 binary instead of the one Playwright downloads.
 
 ## Limitations
 
 * Custom fonts are not part of the shadcn preset code, so **Get Code**,
   **Open in v0** and shared links still contain the site's own font.
-* Custom menu items are reachable with the mouse and Tab, but not with the
-  menu's arrow key navigation.
+* Arrow keys move between the search box and the extension's items, but the
+  site's own arrow key navigation skips them.

@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 import { defineConfig } from "wxt"
 
-import { CUSTOM_FONTS } from "./lib/fonts"
+import { BUNDLED_FONTS } from "./lib/fonts"
 
 // The e2e fixture serves a replica of the create page on localhost. Only
 // builds made for tests get that host so the published extension stays
@@ -45,7 +45,7 @@ export default defineConfig({
     // Font files are copied from their npm packages at build time instead of
     // being committed, so bumping a dependency is enough to update a font.
     "build:publicAssets": (wxt, files) => {
-      for (const font of CUSTOM_FONTS) {
+      for (const font of BUNDLED_FONTS) {
         for (const file of font.files) {
           files.push({
             absoluteSrc: resolve(
@@ -54,7 +54,7 @@ export default defineConfig({
               file.package,
               file.packagePath
             ),
-            relativeDest: file.path,
+            relativeDest: file.src,
           })
         }
       }

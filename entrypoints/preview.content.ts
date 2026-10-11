@@ -1,5 +1,5 @@
 import { loadFont } from "@/lib/font-loader"
-import { getCustomFont, getFontStack } from "@/lib/fonts"
+import { getFontStack, isCustomFont } from "@/lib/fonts"
 import {
   isApplyFontsMessage,
   readOverrides,
@@ -27,10 +27,9 @@ export default defineContentScript({
       root.style.getPropertyValue("--font-sans").trim()
 
     const apply = () => {
-      const body = getCustomFont(overrides.font)
+      const body = overrides.font
       const heading =
-        getCustomFont(overrides.fontHeading) ??
-        (headingInheritsBody() ? body : undefined)
+        overrides.fontHeading ?? (headingInheritsBody() ? body : undefined)
 
       const rules: string[] = []
       if (body) {
@@ -66,7 +65,11 @@ export default defineContentScript({
       if (event.source !== window.parent || !isApplyFontsMessage(event.data)) {
         return
       }
-      overrides = event.data.overrides
+      const { font, fontHeading } = event.data.overrides
+      overrides = {
+        font: isCustomFont(font) ? font : undefined,
+        fontHeading: isCustomFont(fontHeading) ? fontHeading : undefined,
+      }
       apply()
     })
 
