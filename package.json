@@ -1,0 +1,34 @@
+{
+  "name": "shadcn-create-extension",
+  "description": "Extends ui.shadcn.com/create with more font families.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "wxt prepare",
+    "test:e2e": "SCE_E2E=1 wxt build && playwright test"
+  },
+  "devDependencies": {
+    "@base-ui/react": "1.6.0",
+    "@fontsource-variable/gabarito": "^5.3.0",
+    "@playwright/test": "^1.64.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "wxt": "^0.21.4"
+  }
+}

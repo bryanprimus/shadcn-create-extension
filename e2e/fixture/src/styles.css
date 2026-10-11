@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@source "../src";
+
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-heading: var(--font-heading);
+  --color-muted: #f4f4f5;
+  --color-muted-foreground: #71717a;
+  --color-foreground: #09090b;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+/* next/font defines these on the real site. */
+:root {
+  --font-geist: "Geist Variable";
+  --font-inter: "Inter Variable";
+  --font-figtree: "Figtree Variable";
+  --font-jetbrains-mono: "JetBrains Mono Variable";
+  --font-lora: "Lora Variable";
+}
