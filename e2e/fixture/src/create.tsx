@@ -107,6 +107,20 @@ function FontPicker({
   )
 }
 
+// Stand-in for the site's single key shortcuts (R shuffles, D toggles dark
+// mode), which ignore keys typed into inputs.
+declare global {
+  interface Window {
+    siteShortcuts: string[]
+  }
+}
+window.siteShortcuts = []
+document.addEventListener("keydown", (event) => {
+  const target = event.target as HTMLElement
+  if (target.closest("input, textarea, [contenteditable]")) return
+  window.siteShortcuts.push(event.key)
+})
+
 function App() {
   const [params, setParamsState] = React.useState<Params>({
     font: "inter",

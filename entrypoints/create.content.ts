@@ -1,12 +1,10 @@
+import { createElement } from "react"
+import { createRoot, type Root } from "react-dom/client"
+
 import { loadFont } from "@/lib/font-loader"
-import { BUNDLED_FONTS, getFontStack, type CustomFont } from "@/lib/fonts"
-import {
-  fontsourceId,
-  loadCatalog,
-  resolveFont,
-  searchCatalog,
-  type FontsourceEntry,
-} from "@/lib/fontsource"
+import type { CustomFont } from "@/lib/fonts"
+import { resolveFont } from "@/lib/fontsource"
+import { findShadcnFont, toPreviewFont } from "@/lib/shadcn-fonts"
 import {
   addRecentFont,
   readOverrides,
@@ -16,183 +14,102 @@ import {
   type FontOverrides,
   type FontSlot,
 } from "@/lib/state"
+import {
+  FontPickers,
+  type FontOption,
+  type PickerController,
+  type PickerState,
+} from "@/ui/font-pickers"
+import styles from "@/ui/styles.css?inline"
 
 // Selectors come from the site's picker (Base UI Menu) in
 // apps/v4/app/(app)/(create)/components/picker.tsx.
 const TRIGGER = '[data-slot="dropdown-menu-trigger"]'
 const POPUP = '[data-slot="dropdown-menu-content"]'
-const GROUP = '[data-slot="dropdown-menu-group"]'
-const LABEL = '[data-slot="dropdown-menu-label"]'
-const RADIO_GROUP = '[data-slot="dropdown-menu-radio-group"]'
 const RADIO_ITEM = '[data-slot="dropdown-menu-radio-item"]'
-const RADIO_INDICATOR = '[data-slot="dropdown-menu-radio-item-indicator"]'
 
 const SLOT_LABELS: Record<string, FontSlot> = {
   Heading: "fontHeading",
   Font: "font",
 }
 
-const ATTR = {
-  hidden: "data-sce-hidden",
-  value: "data-sce-value",
-  aa: "data-sce-font",
-  group: "data-sce-group",
-  search: "data-sce-search",
-  results: "data-sce-results",
-  status: "data-sce-status",
-  item: "data-sce-item",
-  customActive: "data-sce-custom-active",
-} as const
+const HOST_TAG = "shadcn-create-extension-fonts"
+const HIDDEN = "data-sce-hidden"
+const DRIVING = "data-sce-driving"
 
-const SEARCH_LIMIT = 8
-
-const CHECK_ICON =
-  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4 pointer-coarse:size-5" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>'
-
-// Only classes the site already ships are reused (copied from its own
-// elements at runtime); everything new is styled here.
-const CSS = `
-[${ATTR.hidden}] { display: none !important; }
-/* The site still thinks its own font is selected; hide that checkmark while
-   a custom font owns the slot. */
-[${ATTR.customActive}] ${RADIO_ITEM}:not([${ATTR.item}]) ${RADIO_INDICATOR} > * { display: none !important; }
-[${ATTR.aa}] { font-family: var(--sce-font) !important; }
-[${ATTR.search}] {
-  position: sticky;
-  top: -6px;
-  z-index: 1;
-  margin: -6px -6px 4px;
-  padding: 6px 6px 4px;
-  background: rgb(10 10 10 / 0.9);
-  backdrop-filter: blur(24px);
-}
-[${ATTR.search}] input {
-  box-sizing: border-box;
-  width: 100%;
-  border: 0;
-  border-radius: 8px;
-  padding: 6px 8px;
-  background: rgb(255 255 255 / 0.08);
-  color: rgb(245 245 245);
-  font: inherit;
-  font-size: 14px;
-  outline: none;
-}
-[${ATTR.search}] input::placeholder { color: rgb(163 163 163); }
-[${ATTR.search}] input:focus { box-shadow: 0 0 0 1px rgb(255 255 255 / 0.3); }
-[${ATTR.status}] {
-  padding: 6px 8px;
-  font-size: 12px;
-  color: rgb(163 163 163);
+const PAGE_CSS = `
+[${HIDDEN}] { display: none !important; }
+/* While the extension operates the site's hidden picker, keep its menu
+   (and the click shield the site renders next to it) out of sight. */
+html[${DRIVING}] body > :has(${POPUP}) {
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 `
 
-// Matches the site's useIsMobile(): below 768px menu items close the menu on
-// click and hovering does not preview.
-const isMobile = () => window.innerWidth < 768
-
-type Trigger = {
+type NativeTrigger = {
   slot: FontSlot
   element: HTMLElement
-  label: HTMLElement
+  wrapper: HTMLElement
   value: HTMLElement
-  aa: HTMLElement | null
 }
 
-// What a menu item applies: a ready font, or a search hit resolved on demand.
-type ItemSource =
-  | { kind: "font"; font: CustomFont }
-  | { kind: "fontsource"; entry: FontsourceEntry }
+const isMobile = () => window.innerWidth < 768
 
-const itemId = (source: ItemSource) =>
-  source.kind === "font" ? source.font.id : fontsourceId(source.entry.id)
+const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve))
 
-const itemName = (source: ItemSource) =>
-  source.kind === "font" ? source.font.name : source.entry.family
-
-const sameFonts = (a: FontOverrides | null, b: FontOverrides | null) =>
-  a?.font?.id === b?.font?.id &&
-  a?.fontHeading?.id === b?.fontHeading?.id &&
-  !a === !b
+async function waitFor<T>(find: () => T | null | undefined, timeout = 1500) {
+  const start = performance.now()
+  while (performance.now() - start < timeout) {
+    const found = find()
+    if (found) {
+      return found
+    }
+    await nextFrame()
+  }
+  return null
+}
 
 export default defineContentScript({
   matches: ["https://ui.shadcn.com/*"],
   runAt: "document_idle",
   main(ctx) {
-    let committed: FontOverrides = readOverrides()
-    // Hover state while a font menu is open. null means "show committed".
+    let state: PickerState = {
+      native: { headingInherits: true },
+      committed: readOverrides(),
+      recent: readRecentFonts(),
+    }
+    // Hover state while a picker is open. null means "show committed".
     let preview: FontOverrides | null = null
+    // Last highlighted option per slot, so slow lookups do not preview stale
+    // items.
+    const highlighted = new Map<FontSlot, string | null>()
 
-    const style = document.createElement("style")
-    style.textContent = CSS
-    document.head.append(style)
+    const listeners = new Set<() => void>()
+    const setState = (next: Partial<PickerState>) => {
+      state = { ...state, ...next }
+      listeners.forEach((listener) => listener())
+    }
+
+    const pageStyle = document.createElement("style")
+    pageStyle.textContent = PAGE_CSS
+    document.head.append(pageStyle)
 
     // The create page is reached through client side navigation too, so the
     // script runs site wide and only acts while the pickers are on screen.
     const findTriggers = () => {
-      const triggers = new Map<FontSlot, Trigger>()
+      const triggers = new Map<FontSlot, NativeTrigger>()
       for (const element of document.querySelectorAll<HTMLElement>(TRIGGER)) {
         const label = element.querySelector<HTMLElement>(".text-xs")
         const slot = SLOT_LABELS[label?.textContent?.trim() ?? ""]
         const value = label?.nextElementSibling
-        if (!slot || !label || !(value instanceof HTMLElement)) {
+        const wrapper = element.parentElement
+        if (!slot || !(value instanceof HTMLElement) || !wrapper) {
           continue
         }
-        const aa =
-          Array.from(element.children).find(
-            (child): child is HTMLElement =>
-              child instanceof HTMLElement && child.textContent?.trim() === "Aa"
-          ) ?? null
-        triggers.set(slot, { slot, element, label, value, aa })
+        triggers.set(slot, { slot, element, wrapper, value })
       }
       return triggers
-    }
-
-    // The site stores "heading = body font" as inherit and then shows the
-    // body font's name on the Heading trigger, so equal names mean inherit.
-    const headingInheritsBody = (triggers: Map<FontSlot, Trigger>) => {
-      const heading = triggers.get("fontHeading")?.value.textContent?.trim()
-      const body = triggers.get("font")?.value.textContent?.trim()
-      return !!heading && heading === body
-    }
-
-    const effectiveFont = (slot: FontSlot, triggers: Map<FontSlot, Trigger>) =>
-      slot === "font"
-        ? committed.font
-        : (committed.fontHeading ??
-          (headingInheritsBody(triggers) ? committed.font : undefined))
-
-    const decorateTrigger = (trigger: Trigger, font: CustomFont | undefined) => {
-      const { value, aa } = trigger
-      let replacement = value.parentElement?.querySelector<HTMLElement>(
-        `[${ATTR.value}]`
-      )
-
-      if (!font) {
-        value.removeAttribute(ATTR.hidden)
-        replacement?.remove()
-        aa?.removeAttribute(ATTR.aa)
-        aa?.style.removeProperty("--sce-font")
-        return
-      }
-
-      void loadFont(font)
-      // Never edit the site's text nodes: React owns them. Hide its value and
-      // render ours next to it instead.
-      if (!replacement) {
-        replacement = document.createElement("div")
-        replacement.setAttribute(ATTR.value, "")
-        value.after(replacement)
-      }
-      replacement.className = value.className
-      if (replacement.textContent !== font.name) {
-        replacement.textContent = font.name
-      }
-      value.setAttribute(ATTR.hidden, "")
-      if (aa) {
-        aa.setAttribute(ATTR.aa, font.id)
-        aa.style.setProperty("--sce-font", getFontStack(font))
-      }
     }
 
     const sendToPreview = () => {
@@ -202,365 +119,183 @@ export default defineContentScript({
       const message: ApplyFontsMessage = {
         source: "shadcn-create-extension",
         type: "apply-fonts",
-        overrides: preview ?? committed,
+        overrides: preview ?? state.committed,
       }
       iframe?.contentWindow?.postMessage(message, location.origin)
     }
 
     const setPreview = (next: FontOverrides | null) => {
-      if (sameFonts(next, preview)) {
-        return
+      const same =
+        !next === !preview &&
+        next?.font?.id === preview?.font?.id &&
+        next?.fontHeading?.id === preview?.fontHeading?.id
+      if (!same) {
+        preview = next
+        sendToPreview()
       }
-      preview = next
-      sendToPreview()
     }
 
     const commit = (slot: FontSlot, font: CustomFont | undefined) => {
-      if (committed[slot]?.id === font?.id) {
-        return
-      }
-      const next = { ...committed }
+      const committed = { ...state.committed }
       if (font) {
-        next[slot] = font
+        committed[slot] = font
         addRecentFont(font)
       } else {
-        delete next[slot]
+        delete committed[slot]
       }
-      committed = next
       writeOverrides(committed)
+      setState({ committed, recent: readRecentFonts() })
+      preview = null
       sendToPreview()
-      scheduleSync()
     }
 
-    const closeMenu = (popup: HTMLElement) => {
-      popup.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Escape",
-          code: "Escape",
-          bubbles: true,
-          cancelable: true,
-        })
-      )
-    }
-
-    const toFont = (source: ItemSource) =>
-      source.kind === "font"
-        ? Promise.resolve(source.font)
-        : resolveFont(source.entry)
-
-    type PopupContext = {
-      popup: HTMLElement
-      slot: FontSlot
-      template: HTMLElement | null
-      labelClass: string
-    }
-
-    const buildItem = (context: PopupContext, source: ItemSource) => {
-      const { popup, slot, template } = context
-      const id = itemId(source)
-      const item = document.createElement("div")
-      item.setAttribute(ATTR.item, id)
-      item.setAttribute("role", "menuitemradio")
-      item.setAttribute("aria-checked", "false")
-      item.tabIndex = -1
-      item.className = template?.className ?? ""
-      item.dataset.slot = "dropdown-menu-radio-item"
-
-      const indicator = document.createElement("span")
-      indicator.className =
-        template?.querySelector(RADIO_INDICATOR)?.className ??
-        "pointer-events-none absolute right-2 flex items-center justify-center"
-      indicator.dataset.slot = "dropdown-menu-radio-item-indicator"
-      item.append(indicator, itemName(source))
-
-      const hover = () => {
-        if (document.activeElement !== item) {
-          item.focus({ preventScroll: true })
-        }
-        if (isMobile()) {
-          return
-        }
-        void toFont(source).then(
-          (font) => {
-            // Only preview if the pointer is still on this item.
-            if (document.activeElement === item) {
-              setPreview({ ...committed, [slot]: font })
-            }
-          },
-          () => item.setAttribute("aria-disabled", "true")
-        )
-      }
-
-      const select = (event: Event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        void toFont(source).then(
-          (font) => {
-            commit(slot, font)
-            if (isMobile()) {
-              closeMenu(popup)
-            }
-          },
-          () => item.setAttribute("aria-disabled", "true")
-        )
-      }
-
-      item.addEventListener("mousemove", hover)
-      item.addEventListener("focus", hover)
-      item.addEventListener("click", select)
-      item.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          select(event)
-        } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-          moveFocus(popup, item, event.key === "ArrowDown" ? 1 : -1, event)
-        }
-      })
-      return item
-    }
-
-    // Our items are invisible to Base UI's list navigation, so arrows between
-    // the search box and our items are handled here. Leaving our items hands
-    // control back to the site's menu.
-    const moveFocus = (
-      popup: HTMLElement,
-      from: HTMLElement,
-      direction: 1 | -1,
-      event: KeyboardEvent
-    ) => {
-      const stops = [
-        ...popup.querySelectorAll<HTMLElement>(
-          `[${ATTR.search}] input, [${ATTR.item}]`
-        ),
-      ]
-      const next = stops[stops.indexOf(from) + direction]
-      if (next) {
-        event.preventDefault()
-        event.stopPropagation()
-        next.focus()
-      }
-    }
-
-    const createLabel = (context: PopupContext, text: string) => {
-      const label = document.createElement("div")
-      label.className = context.labelClass
-      label.dataset.slot = "dropdown-menu-label"
-      label.textContent = text
-      return label
-    }
-
-    const createStatus = (text: string) => {
-      const status = document.createElement("div")
-      status.setAttribute(ATTR.status, "")
-      status.textContent = text
-      return status
-    }
-
-    const renderCustomGroup = (context: PopupContext, group: HTMLElement) => {
-      const fonts = [...BUNDLED_FONTS, ...readRecentFonts()]
-      const signature = fonts.map((font) => font.id).join(",")
-      if (group.dataset.signature === signature) {
+    // Picks a value in the site's own (hidden) picker, so the site's state,
+    // preset code, Get Code and history all stay in charge of built-in fonts.
+    const selectNative = async (slot: FontSlot, title: string | "inherit") => {
+      const trigger = findTriggers().get(slot)
+      if (!trigger) {
         return
       }
-      group.dataset.signature = signature
-      group.replaceChildren(
-        createLabel(context, "Custom"),
-        ...fonts.map((font) => buildItem(context, { kind: "font", font }))
-      )
-    }
-
-    const createSearch = (context: PopupContext) => {
-      const container = document.createElement("div")
-      container.setAttribute(ATTR.search, "")
-
-      const input = document.createElement("input")
-      input.type = "search"
-      input.placeholder = "Search Fontsource…"
-      input.setAttribute("aria-label", "Search Fontsource fonts")
-      input.autocomplete = "off"
-      input.spellcheck = false
-
-      const results = document.createElement("div")
-      results.setAttribute(ATTR.results, "")
-      results.setAttribute("role", "group")
-      results.dataset.slot = "dropdown-menu-group"
-
-      let query = ""
-      let timer = 0
-
-      const render = async () => {
-        const current = query
-        if (!current.trim()) {
-          results.replaceChildren()
+      const root = document.documentElement
+      root.setAttribute(DRIVING, "")
+      try {
+        trigger.element.click()
+        const popup = await waitFor(() =>
+          document.querySelector<HTMLElement>(`${POPUP}:not([data-closed])`)
+        )
+        if (!popup) {
           return
         }
-        results.replaceChildren(createStatus("Searching…"))
-        try {
-          const entries = searchCatalog(await loadCatalog(), current, SEARCH_LIMIT)
-          if (current !== query) {
-            return
+        const items = Array.from(popup.querySelectorAll<HTMLElement>(RADIO_ITEM))
+        const item =
+          title === "inherit"
+            ? items[0]
+            : items.find((element) => element.textContent?.trim() === title)
+        item?.click()
+        popup.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+        )
+        await waitFor(() => !document.querySelector(`${POPUP}:not([data-closed])`))
+      } finally {
+        root.removeAttribute(DRIVING)
+      }
+    }
+
+    const toFont = (option: FontOption): Promise<CustomFont | undefined> => {
+      switch (option.kind) {
+        case "font":
+          return Promise.resolve(option.font)
+        case "fontsource":
+          return resolveFont(option.entry)
+        case "shadcn": {
+          const font = findShadcnFont(option.label)
+          return Promise.resolve(font && toPreviewFont(font))
+        }
+        case "inherit": {
+          if (state.committed.font) {
+            return Promise.resolve(state.committed.font)
           }
-          results.replaceChildren(
-            ...(entries.length
-              ? [
-                  createLabel(context, "Fontsource"),
-                  ...entries.map((entry) =>
-                    buildItem(context, { kind: "fontsource", entry })
-                  ),
-                ]
-              : [createStatus("No fonts found")])
-          )
-          updateChecks(context)
-        } catch (error) {
-          console.error("[shadcn-create-extension] Fontsource search failed", error)
-          if (current === query) {
-            results.replaceChildren(createStatus("Couldn't reach Fontsource"))
-          }
-        }
-      }
-
-      input.addEventListener("input", () => {
-        query = input.value
-        clearTimeout(timer)
-        timer = window.setTimeout(render, 120)
-      })
-      // Keep typing away from the menu's typeahead and list navigation.
-      input.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" || event.key === "Tab") {
-          return
-        }
-        if (event.key === "ArrowDown") {
-          moveFocus(context.popup, input, 1, event)
-          return
-        }
-        if (event.key === "Enter") {
-          event.preventDefault()
-          results.querySelector<HTMLElement>(`[${ATTR.item}]`)?.click()
-        }
-        event.stopPropagation()
-      })
-      // Start the catalog download as soon as the box is used.
-      input.addEventListener("focus", () => void loadCatalog().catch(() => {}), {
-        once: true,
-      })
-      // Hovering the search box shows the committed fonts again.
-      container.addEventListener("mousemove", () => setPreview(null))
-
-      // Only the box is sticky; results scroll with the rest of the menu.
-      container.append(input)
-      return [container, results]
-    }
-
-    const updateChecks = (context: PopupContext) => {
-      const selected = committed[context.slot]?.id
-      context.popup.toggleAttribute(ATTR.customActive, !!selected)
-      for (const item of context.popup.querySelectorAll<HTMLElement>(
-        `[${ATTR.item}]`
-      )) {
-        const checked = item.getAttribute(ATTR.item) === selected
-        item.setAttribute("aria-checked", String(checked))
-        item.toggleAttribute("data-checked", checked)
-        const indicator = item.querySelector(RADIO_INDICATOR)
-        if (indicator && checked !== !!indicator.firstChild) {
-          indicator.innerHTML = checked ? CHECK_ICON : ""
+          const font = findShadcnFont(state.native.font)
+          return Promise.resolve(font && toPreviewFont(font))
         }
       }
     }
 
-    const contexts = new WeakMap<HTMLElement, PopupContext>()
-
-    const enhancePopup = (popup: HTMLElement, slot: FontSlot) => {
-      const radioGroup = popup.querySelector<HTMLElement>(RADIO_GROUP)
-      if (!radioGroup) {
-        return
-      }
-
-      let context = contexts.get(popup)
-      if (!context || context.slot !== slot) {
-        context = {
-          popup,
-          slot,
-          template: radioGroup.querySelector<HTMLElement>(
-            `${RADIO_ITEM}:not([${ATTR.item}])`
-          ),
-          labelClass:
-            radioGroup.querySelector(LABEL)?.className ??
-            "px-2 py-1.5 text-xs font-medium text-neutral-400",
+    const controller: PickerController = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      getState: () => state,
+      select(slot, option) {
+        highlighted.set(slot, null)
+        if (option.kind === "shadcn" || option.kind === "inherit") {
+          commit(slot, undefined)
+          void selectNative(slot, option.kind === "inherit" ? "inherit" : option.label)
+          return
         }
-        contexts.set(popup, context)
-      }
-
-      if (!radioGroup.querySelector(`[${ATTR.search}]`)) {
-        radioGroup.prepend(...createSearch(context))
-      }
-
-      let group = radioGroup.querySelector<HTMLElement>(`[${ATTR.group}]`)
-      if (!group) {
-        // Insert before the first labelled site group (Sans) so custom fonts
-        // sit right under the Heading picker's "inherit" entry.
-        const firstLabelledGroup = Array.from(
-          radioGroup.querySelectorAll<HTMLElement>(
-            `:scope > ${GROUP}:not([${ATTR.group}])`
-          )
-        ).find((element) => element.querySelector(LABEL))
-
-        group = document.createElement("div")
-        group.setAttribute(ATTR.group, "")
-        group.setAttribute("role", "group")
-        group.dataset.slot = "dropdown-menu-group"
-        radioGroup.insertBefore(group, firstLabelledGroup ?? null)
-
-        // Picking one of the site's fonts hands the slot back to the site.
-        popup.addEventListener(
-          "click",
-          (event) => {
-            const target = event.target as Element | null
-            const native = target?.closest(RADIO_ITEM)
-            if (native && !native.hasAttribute(ATTR.item)) {
-              commit(slot, undefined)
+        void toFont(option).then(
+          (font) => font && commit(slot, font),
+          (error) => console.error("[shadcn-create-extension] Could not load font", error)
+        )
+      },
+      preview(slot, option) {
+        highlighted.set(slot, option?.key ?? null)
+        if (!option || isMobile()) {
+          setPreview(null)
+          return
+        }
+        void toFont(option).then(
+          (font) => {
+            if (font && highlighted.get(slot) === option.key) {
+              setPreview({ ...state.committed, [slot]: font })
             }
           },
-          true
+          () => {}
         )
-        // While hovering a site font, drop our override for this slot so the
-        // site's own hover preview is visible.
-        const previewNative = (event: Event) => {
-          const target = event.target as Element | null
-          const native = target?.closest(RADIO_ITEM)
-          if (native && !native.hasAttribute(ATTR.item) && !isMobile()) {
-            const next = { ...committed }
-            delete next[slot]
-            setPreview(next)
-          }
-        }
-        popup.addEventListener("mousemove", previewNative)
-        popup.addEventListener("focusin", previewNative)
-        popup.addEventListener("mouseleave", () => setPreview(null))
-      }
-
-      renderCustomGroup(context, group)
-      updateChecks(context)
+      },
+      portalContainer: document.createElement("div"),
     }
+
+    // Mount: a shadow root keeps the extension's Tailwind build away from the
+    // site's styles while inheriting its theme tokens.
+    const host = document.createElement(HOST_TAG)
+    const shadow = host.attachShadow({ mode: "open" })
+    const sheet = document.createElement("style")
+    sheet.textContent = styles
+    // The customizer is a .dark scope; repeat it inside so dark: variants match.
+    const scope = document.createElement("div")
+    scope.className = "dark"
+    scope.style.display = "contents"
+    const app = document.createElement("div")
+    app.style.display = "contents"
+    scope.append(app, controller.portalContainer)
+    shadow.append(sheet, scope)
+    // Keys typed in the pickers must not reach the site's shortcuts (R
+    // shuffles, D toggles dark mode). Inside a shadow root the site would see
+    // the host, not an input, as the target.
+    for (const type of ["keydown", "keyup", "keypress"]) {
+      shadow.addEventListener(type, (event) => event.stopPropagation())
+    }
+    let root: Root | undefined
 
     const sync = () => {
       const triggers = findTriggers()
-      if (triggers.size === 0) {
+      const heading = triggers.get("fontHeading")
+      const body = triggers.get("font")
+      if (!heading || !body) {
         return
       }
 
-      for (const trigger of triggers.values()) {
-        decorateTrigger(trigger, effectiveFont(trigger.slot, triggers))
+      for (const trigger of [heading, body]) {
+        trigger.wrapper.setAttribute(HIDDEN, "")
+      }
+      if (host.nextElementSibling !== heading.wrapper) {
+        heading.wrapper.before(host)
+      }
+      if (!root) {
+        root = createRoot(app)
+        root.render(createElement(FontPickers, { controller }))
       }
 
-      const open = Array.from(triggers.values()).find((trigger) =>
-        trigger.element.hasAttribute("data-popup-open")
-      )
-      const popup = document.querySelector<HTMLElement>(
-        `${POPUP}:not([data-closed])`
-      )
-      if (open && popup) {
-        enhancePopup(popup, open.slot)
-      } else if (preview) {
-        setPreview(null)
+      const native = {
+        font: body.value.textContent?.trim() || undefined,
+        fontHeading: heading.value.textContent?.trim() || undefined,
+        headingInherits:
+          heading.value.textContent?.trim() === body.value.textContent?.trim(),
+      }
+      if (
+        native.font !== state.native.font ||
+        native.fontHeading !== state.native.fontHeading ||
+        native.headingInherits !== state.native.headingInherits
+      ) {
+        setState({ native })
+      }
+
+      for (const font of [state.committed.font, state.committed.fontHeading]) {
+        if (font) {
+          void loadFont(font)
+        }
       }
     }
 
@@ -579,12 +314,15 @@ export default defineContentScript({
       subtree: true,
       childList: true,
       characterData: true,
-      attributes: true,
-      attributeFilter: ["data-popup-open", "data-closed"],
     })
     ctx.onInvalidated(() => {
       observer.disconnect()
-      style.remove()
+      root?.unmount()
+      host.remove()
+      pageStyle.remove()
+      document.querySelectorAll(`[${HIDDEN}]`).forEach((element) => {
+        element.removeAttribute(HIDDEN)
+      })
     })
 
     // A new preview iframe (base or item change) reads the committed state

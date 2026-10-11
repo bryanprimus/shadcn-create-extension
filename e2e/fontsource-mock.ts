@@ -13,6 +13,17 @@ const FONT_BYTES = readFileSync(
 
 const CATALOG = [
   {
+    id: "inter",
+    family: "Inter",
+    subsets: ["latin"],
+    weights: [400, 700],
+    styles: ["normal"],
+    defSubset: "latin",
+    variable: true,
+    category: "sans-serif",
+    type: "google",
+  },
+  {
     id: "bricolage-grotesque",
     family: "Bricolage Grotesque",
     subsets: ["latin", "latin-ext"],

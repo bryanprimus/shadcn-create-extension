@@ -2,12 +2,35 @@
 
 @source "../src";
 
+@custom-variant dark (&:is(.dark *));
+
 @theme inline {
   --font-sans: var(--font-sans);
   --font-heading: var(--font-heading);
-  --color-muted: #f4f4f5;
-  --color-muted-foreground: #71717a;
-  --color-foreground: #09090b;
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-foreground: var(--foreground);
+}
+
+/* shadcn neutral tokens, as on the site (the customizer is a .dark scope). */
+:root {
+  --radius: 0.625rem;
+  --foreground: oklch(0.145 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+}
+
+.dark {
+  --foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.371 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
 }
 
 body {

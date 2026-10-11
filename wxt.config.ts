@@ -1,4 +1,5 @@
 import { resolve } from "node:path"
+import tailwindcss from "@tailwindcss/vite"
 import { defineConfig } from "wxt"
 
 import { BUNDLED_FONTS } from "./lib/fonts"
@@ -20,6 +21,8 @@ function withTestHost(matches: string[]) {
 }
 
 export default defineConfig({
+  modules: ["@wxt-dev/module-react"],
+  vite: () => ({ plugins: [tailwindcss()] }),
   manifest: {
     name: "shadcn/create Extension",
     description:

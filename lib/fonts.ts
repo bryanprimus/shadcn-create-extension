@@ -18,10 +18,12 @@ export type CustomFont = {
   family: string
   category: string
   fallback: string
-  source: "bundled" | "fontsource"
+  source: "bundled" | "fontsource" | "shadcn"
   // npm package a project would install to ship this font.
   dependency: string
   files: FontFile[]
+  // Full font-family value, when it is not just `family` plus `fallback`.
+  stack?: string
 }
 
 type BundledFile = FontFile & { package: string; packagePath: string }
@@ -64,7 +66,7 @@ export const BUNDLED_FONTS: readonly (CustomFont & { files: BundledFile[] })[] =
 ]
 
 export function getFontStack(font: CustomFont) {
-  return `'${font.family.replaceAll("'", "\\'")}', ${font.fallback}`
+  return font.stack ?? `'${font.family.replaceAll("'", "\\'")}', ${font.fallback}`
 }
 
 // Generic family for a Fontsource category.
