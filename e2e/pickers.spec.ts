@@ -154,3 +154,36 @@ test("works offline with the site's fonts and Gabarito", async ({ context }) => 
     .poll(() => fontFamily(page, "body"))
     .toBe("Gabarito Variable, sans-serif")
 })
+
+test("opens next to the trigger without disturbing the customizer", async ({
+  context,
+}) => {
+  const page = await context.newPage()
+  // Short enough that the customizer scrolls, like a laptop screen.
+  await page.setViewportSize({ width: 1280, height: 760 })
+  await page.goto("/create/")
+
+  const panel = page.getByTestId("customizer")
+  await picker(page, "fontHeading").click()
+  await expect(option(page, "Geist")).toBeVisible()
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: "test-results/open-in-panel.png" })
+
+  // Rendered at page level, to the right of the panel like the site's menu,
+  // and the customizer neither scrolls nor clips it.
+  const panelBox = (await panel.boundingBox())!
+  const triggerBox = (await picker(page, "fontHeading").boundingBox())!
+  const popupBox = (await popup(page).boundingBox())!
+  expect(popupBox.x).toBeGreaterThan(panelBox.x + panelBox.width)
+  expect(Math.abs(popupBox.y - triggerBox.y)).toBeLessThan(12)
+  expect(popupBox.height).toBeGreaterThan(200)
+  expect(
+    await page.getByTestId("customizer-content").evaluate((element) => element.scrollTop)
+  ).toBe(0)
+
+  // Keeps the customizer's dark colours outside the .dark panel.
+  const background = await popup(page).evaluate(
+    (element) => getComputedStyle(element).backgroundColor
+  )
+  expect(background).toMatch(/oklch\(0\.2/)
+})

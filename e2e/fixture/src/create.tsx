@@ -151,7 +151,25 @@ function App() {
   return (
     <OverrideContext.Provider value={{ setOverride }}>
       <div className="flex h-screen gap-6 p-6">
-        <div className="flex w-56 flex-col gap-3 rounded-2xl bg-neutral-900 p-3 text-neutral-100 dark">
+        {/* Like the site's customizer Card: a .dark, isolated, blurred panel
+            whose content scrolls, which clips anything positioned inside. */}
+        <div
+          data-testid="customizer"
+          className="dark isolate flex w-56 flex-col rounded-2xl bg-neutral-900/90 text-neutral-100 backdrop-blur-xl"
+        >
+          <div
+            data-testid="customizer-content"
+            className="flex min-h-0 flex-1 flex-col gap-3 overflow-x-auto overflow-y-auto p-3"
+          >
+            {/* The pickers above Heading on the site. */}
+            {["Style", "Base Color", "Theme", "Chart Color"].map((label) => (
+              <div
+                key={label}
+                className="h-14 shrink-0 rounded-lg p-2.5 text-xs ring-1 ring-foreground/10"
+              >
+                {label}
+              </div>
+            ))}
           <FontPicker
             label="Heading"
             param="fontHeading"
@@ -169,6 +187,15 @@ function App() {
           <output data-testid="params" className="text-xs">
             {JSON.stringify(params)}
           </output>
+            {["Icon Library", "Radius", "Preset", "Shuffle"].map((label) => (
+              <div
+                key={label}
+                className="h-14 shrink-0 rounded-lg p-2.5 text-xs ring-1 ring-foreground/10"
+              >
+                {label}
+              </div>
+            ))}
+          </div>
         </div>
         <iframe
           ref={iframeRef}

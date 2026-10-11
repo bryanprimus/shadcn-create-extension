@@ -44,6 +44,8 @@ export type PickerController = {
   select: (slot: FontSlot, option: FontOption) => void
   preview: (slot: FontSlot, option: FontOption | null) => void
   portalContainer: HTMLElement
+  // Called right before a popup opens.
+  beforeOpen: () => void
 }
 
 const SEARCH_LIMIT = 30
@@ -256,6 +258,9 @@ function FontPicker({
         onInputValueChange={setQuery}
         open={open}
         onOpenChange={(next) => {
+          if (next) {
+            controller.beforeOpen()
+          }
           setOpen(next)
           if (!next) {
             setQuery("")

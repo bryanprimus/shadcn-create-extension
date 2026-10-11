@@ -34,6 +34,31 @@ const SLOT_LABELS: Record<string, FontSlot> = {
 }
 
 const HOST_TAG = "shadcn-create-extension-fonts"
+const PORTAL_TAG = "shadcn-create-extension-portal"
+
+// Theme tokens the components use. The popup renders outside the
+// customizer's .dark scope, so their values are copied over from it.
+const TOKENS = [
+  "radius",
+  "background",
+  "foreground",
+  "card",
+  "card-foreground",
+  "popover",
+  "popover-foreground",
+  "primary",
+  "primary-foreground",
+  "secondary",
+  "secondary-foreground",
+  "muted",
+  "muted-foreground",
+  "accent",
+  "accent-foreground",
+  "destructive",
+  "border",
+  "input",
+  "ring",
+]
 const HIDDEN = "data-sce-hidden"
 const DRIVING = "data-sce-driving"
 
@@ -235,28 +260,52 @@ export default defineContentScript({
         )
       },
       portalContainer: document.createElement("div"),
+      beforeOpen: () => copyTokens(),
     }
 
-    // Mount: a shadow root keeps the extension's Tailwind build away from the
-    // site's styles while inheriting its theme tokens.
-    const host = document.createElement(HOST_TAG)
-    const shadow = host.attachShadow({ mode: "open" })
-    const sheet = document.createElement("style")
-    sheet.textContent = styles
-    // The customizer is a .dark scope; repeat it inside so dark: variants match.
-    const scope = document.createElement("div")
-    scope.className = "dark"
-    scope.style.display = "contents"
+    // Shadow roots keep the extension's Tailwind build away from the site's
+    // styles. The customizer is a .dark scope, so each root repeats it for
+    // dark: variants to match.
+    const createShadowHost = (tag: string, content: HTMLElement) => {
+      const element = document.createElement(tag)
+      element.style.display = "contents"
+      const shadow = element.attachShadow({ mode: "open" })
+      const sheet = document.createElement("style")
+      sheet.textContent = styles
+      const scope = document.createElement("div")
+      scope.className = "dark"
+      scope.style.display = "contents"
+      scope.append(content)
+      shadow.append(sheet, scope)
+      // Keys typed in the pickers must not reach the site's shortcuts (R
+      // shuffles, D toggles dark mode). Outside the shadow root the site
+      // would see the host, not an input, as the target.
+      for (const type of ["keydown", "keyup", "keypress"]) {
+        shadow.addEventListener(type, (event) => event.stopPropagation())
+      }
+      return element
+    }
+
+    // The pickers sit where the site's pickers were and inherit the
+    // customizer's tokens.
     const app = document.createElement("div")
     app.style.display = "contents"
-    scope.append(app, controller.portalContainer)
-    shadow.append(sheet, scope)
-    // Keys typed in the pickers must not reach the site's shortcuts (R
-    // shuffles, D toggles dark mode). Inside a shadow root the site would see
-    // the host, not an input, as the target.
-    for (const type of ["keydown", "keyup", "keypress"]) {
-      shadow.addEventListener(type, (event) => event.stopPropagation())
+    const host = createShadowHost(HOST_TAG, app)
+
+    // Popups render at page level, like the site's own menus: inside the
+    // customizer they would be clipped by its scrolling, blurred panel.
+    const portalHost = createShadowHost(PORTAL_TAG, controller.portalContainer)
+
+    function copyTokens() {
+      const computed = getComputedStyle(host)
+      for (const token of TOKENS) {
+        portalHost.style.setProperty(
+          `--${token}`,
+          computed.getPropertyValue(`--${token}`)
+        )
+      }
     }
+
     let root: Root | undefined
 
     const sync = () => {
@@ -272,6 +321,9 @@ export default defineContentScript({
       }
       if (host.nextElementSibling !== heading.wrapper) {
         heading.wrapper.before(host)
+      }
+      if (portalHost.parentElement !== document.body) {
+        document.body.append(portalHost)
       }
       if (!root) {
         root = createRoot(app)
@@ -319,6 +371,7 @@ export default defineContentScript({
       observer.disconnect()
       root?.unmount()
       host.remove()
+      portalHost.remove()
       pageStyle.remove()
       document.querySelectorAll(`[${HIDDEN}]`).forEach((element) => {
         element.removeAttribute(HIDDEN)
